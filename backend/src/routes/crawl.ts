@@ -5,15 +5,32 @@ import { CrawlService } from '../services/crawl.service';
 const router = Router();
 const crawlService = new CrawlService();
 
+function formatCrawlJob(run: any, errors: any[] = []): any {
+  return {
+    id: run.id,
+    supplier: run.supplier === 'psh' ? 'PSH' : run.supplier === 'fraterworks' ? 'Fraterworks' : run.supplier === 'pa' ? 'PA' : run.supplier,
+    status: run.status === 'running' ? 'running' : run.status === 'completed' ? 'completed' : 'failed',
+    startedAt: run.started_at,
+    completedAt: run.completed_at,
+    productsFound: run.products_found || 0,
+    productsProcessed: run.products_updated || run.products_found || 0,
+    estimatedTotal: null,
+    errors: errors.map((e: any) => `${e.error_type}: ${e.error_message}`),
+    // Backward compatibility
+    run,
+  };
+}
+
 const CrawlRequestSchema = z.object({
-  supplier: z.enum(['psh', 'fraterworks', 'pa', 'all']).default('all'),
+  supplier: z.string().default('all'),
   maxPages: z.number().int().positive().optional(),
   testMode: z.boolean().optional(),
 });
 
 /**
  * POST /api/crawl
- * Trigger a background crawl for suppliers.
+ * Triggers a bounded crawl, fully awaiting execution before responding.
+ * Eliminates detached background promise drops in serverless environments.
  */
 router.post('/', async (req: Request, res: Response) => {
   const parsed = CrawlRequestSchema.safeParse(req.body);
@@ -24,43 +41,78 @@ router.post('/', async (req: Request, res: Response) => {
     });
   }
 
-  const { supplier, maxPages, testMode } = parsed.data;
+  const rawSupplier = parsed.data.supplier.toLowerCase();
+  const validSuppliers = ['psh', 'fraterworks', 'pa', 'all'];
+  const supplier = (validSuppliers.includes(rawSupplier) ? rawSupplier : 'all') as 'psh' | 'fraterworks' | 'pa' | 'all';
+  const { maxPages = 1, testMode = false } = parsed.data;
 
   try {
-    const runs = await crawlService.startCrawl(supplier, { maxPages, testMode });
-    return res.status(202).json({
-      success: true,
-      message: `Crawl initiated for ${supplier}`,
-      jobId: runs[0]?.id,
-      runs,
+    // 100% synchronous & awaited within serverless function execution budget
+    const runs = await crawlService.runBoundedCrawl(supplier, { maxPages, testMode });
+    const primary = runs[0];
+    const formatted = formatCrawlJob(primary);
+
+    return res.status(200).json({
+      ...formatted,
+      runs: runs.map((r) => formatCrawlJob(r)),
+      message: `Crawl completed for ${supplier}`,
     });
   } catch (err: any) {
-    console.error('[Crawl Route] Error starting crawl:', err);
+    console.error('[Crawl Route] Error during crawl execution:', err);
     return res.status(500).json({
-      error: 'Failed to start crawl',
+      error: 'Crawl execution failed',
       message: err.message,
     });
   }
 });
 
 /**
- * GET /api/crawl/status/:jobId
- * Check progress and errors of a specific crawl run.
+ * POST /api/crawl/step
+ * Atomic page/chunk step. Crawls a single page or batch, persisting progress before return.
  */
-router.get('/status/:jobId', async (req: Request, res: Response) => {
-  const { jobId } = req.params;
+router.post('/step', async (req: Request, res: Response) => {
+  const rawSupplier = (req.body.supplier || 'psh').toLowerCase();
+  const valid = ['psh', 'fraterworks', 'pa'];
+  const supplier = (valid.includes(rawSupplier) ? rawSupplier : 'psh') as 'psh' | 'fraterworks' | 'pa';
+  const page = Math.max(1, parseInt(req.body.page || '1', 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.body.pageSize || '25', 10)));
+  const jobId = req.body.jobId;
 
   try {
-    const result = await crawlService.getStatus(jobId);
+    const stepResult = await crawlService.crawlStep({ supplier, page, pageSize, jobId });
+    return res.json(stepResult);
+  } catch (err: any) {
+    console.error('[Crawl Step Route] Error:', err);
+    return res.status(500).json({ error: 'Step crawl failed', message: err.message });
+  }
+});
+
+/**
+ * GET /api/crawl/status/:jobId & GET /api/crawl/:jobId
+ */
+const getStatusHandler = async (req: Request, res: Response) => {
+  const { jobId, id } = req.params;
+  const targetId = jobId || id;
+
+  try {
+    const result = await crawlService.getStatus(targetId);
     if (!result) {
       return res.status(404).json({ error: 'Crawl job not found' });
     }
-    return res.json(result);
+    const formatted = formatCrawlJob(result.run, result.errors);
+    return res.json({
+      ...formatted,
+      run: result.run,
+      errors: result.errors,
+    });
   } catch (err: any) {
     console.error('[Crawl Route] Error checking status:', err);
     return res.status(500).json({ error: 'Failed to check crawl status' });
   }
-});
+};
+
+router.get('/status/:jobId', getStatusHandler);
+router.get('/:id', getStatusHandler);
 
 /**
  * GET /api/crawl
@@ -72,7 +124,8 @@ router.get('/', async (req: Request, res: Response) => {
 
   try {
     const runs = await crawlService.getRecent(supplier, limit);
-    return res.json({ runs });
+    const formatted = runs.map((r) => formatCrawlJob(r));
+    return res.json({ runs: formatted });
   } catch (err: any) {
     console.error('[Crawl Route] Error listing crawl runs:', err);
     return res.status(500).json({ error: 'Failed to fetch crawl runs' });

@@ -83,8 +83,26 @@ router.get('/scrape-runs/:id', adminAuth, async (req: Request, res: Response) =>
   }
 });
 
+import { CrawlService } from '../services/crawl.service';
+const crawlService = new CrawlService();
+
+function formatAdminCrawlJob(run: any, errors: any[] = []): any {
+  return {
+    id: run.id,
+    supplier: run.supplier === 'psh' ? 'PSH' : run.supplier === 'fraterworks' ? 'Fraterworks' : run.supplier === 'pa' ? 'PA' : run.supplier,
+    status: run.status === 'running' ? 'running' : run.status === 'completed' ? 'completed' : 'failed',
+    startedAt: run.started_at,
+    completedAt: run.completed_at,
+    productsFound: run.products_found || 0,
+    productsProcessed: run.products_updated || run.products_found || 0,
+    estimatedTotal: null,
+    errors: errors.map((e: any) => `${e.error_type}: ${e.error_message}`),
+    run,
+  };
+}
+
 const CrawlSchema = z.object({
-  supplier: z.enum(['psh', 'fraterworks', 'pa', 'all']),
+  supplier: z.string().default('all'),
   options: z.object({
     maxPages: z.number().positive().optional(),
     testMode: z.boolean().optional(),
@@ -93,7 +111,7 @@ const CrawlSchema = z.object({
 
 /**
  * POST /api/admin/crawl
- * Trigger a scraper crawl.
+ * Trigger a scraper crawl with synchronous execution durability.
  */
 router.post('/crawl', adminAuth, async (req: Request, res: Response) => {
   const parsed = CrawlSchema.safeParse(req.body);
@@ -101,34 +119,78 @@ router.post('/crawl', adminAuth, async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
 
-  const { supplier, options } = parsed.data;
+  const rawSupplier = parsed.data.supplier.toLowerCase();
+  const validSuppliers = ['psh', 'fraterworks', 'pa', 'all'];
+  const supplier = (validSuppliers.includes(rawSupplier) ? rawSupplier : 'all') as 'psh' | 'fraterworks' | 'pa' | 'all';
+  const options = parsed.data.options || { maxPages: 1 };
 
   try {
-    // Create scrape run records
-    const suppliers = supplier === 'all' ? ['psh', 'fraterworks', 'pa'] : [supplier];
-    const runs = await Promise.all(
-      suppliers.map(async (s) => {
-        const { data } = await supabase
-          .from('scrape_runs')
-          .insert({ supplier: s, started_at: new Date().toISOString(), status: 'running' })
-          .select()
-          .single();
-        return data;
-      })
-    );
-
-    // Note: Actual scraping runs as a separate process (npm run scrape:xxx)
-    // This endpoint triggers the scraper via a child process in production
-    // For now, it returns the created run IDs so the frontend can poll status
+    const runs = await crawlService.runBoundedCrawl(supplier, options);
+    const primary = runs[0];
+    const formatted = formatAdminCrawlJob(primary);
 
     return res.json({
-      message: `Crawl initiated for: ${suppliers.join(', ')}`,
-      runs: runs.filter(Boolean),
-      note: 'Run npm run scrape:' + supplier + ' to execute the actual crawl',
+      ...formatted,
+      message: `Crawl completed for: ${supplier}`,
+      runs: runs.map((r) => formatAdminCrawlJob(r)),
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error('[Admin/crawl] Error:', err);
-    return res.status(500).json({ error: 'Failed to initiate crawl' });
+    return res.status(500).json({ error: 'Failed to execute crawl', message: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/crawl/step
+ * Atomic page/chunk step.
+ */
+router.post('/crawl/step', adminAuth, async (req: Request, res: Response) => {
+  const rawSupplier = (req.body.supplier || 'psh').toLowerCase();
+  const valid = ['psh', 'fraterworks', 'pa'];
+  const supplier = (valid.includes(rawSupplier) ? rawSupplier : 'psh') as 'psh' | 'fraterworks' | 'pa';
+  const page = Math.max(1, parseInt(req.body.page || '1', 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.body.pageSize || '25', 10)));
+  const jobId = req.body.jobId;
+
+  try {
+    const stepResult = await crawlService.crawlStep({ supplier, page, pageSize, jobId });
+    return res.json(stepResult);
+  } catch (err: any) {
+    console.error('[Admin/crawl/step] Error:', err);
+    return res.status(500).json({ error: 'Step crawl failed', message: err.message });
+  }
+});
+
+/**
+ * GET /api/admin/crawl/:id
+ */
+router.get('/crawl/:id', adminAuth, async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    const result = await crawlService.getStatus(id);
+    if (!result) {
+      return res.status(404).json({ error: 'Crawl job not found' });
+    }
+    const formatted = formatAdminCrawlJob(result.run, result.errors);
+    return res.json(formatted);
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch crawl status' });
+  }
+});
+
+/**
+ * GET /api/admin/crawl
+ */
+router.get('/crawl', adminAuth, async (req: Request, res: Response) => {
+  const supplier = req.query.supplier as string | undefined;
+  const limit = Math.min(100, parseInt(req.query.limit as string || '20', 10));
+
+  try {
+    const runs = await crawlService.getRecent(supplier, limit);
+    return res.json(runs.map((r) => formatAdminCrawlJob(r)));
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch crawl runs' });
   }
 });
 
