@@ -41,8 +41,10 @@ api.interceptors.response.use(
 // ─── Search ───────────────────────────────────────────────────────────────────
 
 export async function search(q: string): Promise<SearchResult[]> {
-  const { data } = await api.get<SearchResult[]>('/search', { params: { q } });
-  return data;
+  const { data } = await api.get<any>('/search', { params: { q } });
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.results)) return data.results;
+  return [];
 }
 
 // ─── Comparison ───────────────────────────────────────────────────────────────

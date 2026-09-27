@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "frontend/dist",
+  "framework": "vite",
+  "crons": [
+    {
+      "path": "/api/cron/refresh-suppliers",
+      "schedule": "0 2 * * *"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/health",
+      "destination": "/api"
+    },
+    {
+      "source": "/api/health",
+      "destination": "/api"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/((?!api/|health).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

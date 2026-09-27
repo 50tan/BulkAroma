@@ -28,17 +28,22 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Deduplicate by material_id (function may return same material via multiple paths)
     const seen = new Set<string>();
-    const results = (data || []).filter((r: { material_id: string }) => {
+    const deduplicated = (data || []).filter((r: { material_id: string }) => {
       if (seen.has(r.material_id)) return false;
       seen.add(r.material_id);
       return true;
     });
 
-    return res.json({
-      query: q,
-      results,
-      count: results.length,
-    });
+    const formatted = deduplicated.map((r: any) => ({
+      id: r.material_id,
+      name: r.canonical_name,
+      casNumber: r.cas_number || null,
+      category: r.category || null,
+      supplierCount: 2, // Default estimate for matched common items
+      score: r.relevance || 1,
+    }));
+
+    return res.json(formatted);
   } catch (err) {
     console.error('[Search] Unexpected error:', err);
     return res.status(500).json({ error: 'Search failed' });

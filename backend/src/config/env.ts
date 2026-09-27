@@ -23,4 +23,6 @@ export const env = {
   currencyApiProvider: optional('CURRENCY_API_PROVIDER', 'exchangerate-api'),
   currencyApiKey: optional('CURRENCY_API_KEY', ''),
   exportBucket: optional('EXPORT_BUCKET', 'exports'),
+  cronSecret: optional('CRON_SECRET', ''),
+  adminSecret: optional('ADMIN_SECRET', ''),
 };

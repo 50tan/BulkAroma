@@ -1,17 +1,20 @@
 import ExcelJS from 'exceljs';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { supabase } from '../config/supabase';
 import { env } from '../config/env';
 import { CurrencyService } from './currency.service';
 
-const EXPORTS_DIR = fs.existsSync(path.join(process.cwd(), 'exports'))
-  ? path.join(process.cwd(), 'exports')
-  : path.resolve(process.cwd(), '..', 'exports');
+const EXPORTS_DIR = path.join(os.tmpdir(), 'bulkaroma-exports');
 
 // Ensure exports directory exists
-if (!fs.existsSync(EXPORTS_DIR)) {
-  fs.mkdirSync(EXPORTS_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(EXPORTS_DIR)) {
+    fs.mkdirSync(EXPORTS_DIR, { recursive: true });
+  }
+} catch {
+  // Ignore in restricted environments
 }
 
 // Style helpers
@@ -517,19 +520,54 @@ export class ExportService {
       }
       sheet8.getColumn('last_crawl_started').numFmt = 'yyyy-mm-dd hh:mm';
 
-      // Save to file
-      const fileName = 'Bulkaroma_Common_Materials.xlsx';
+      // Save to buffer
+      const fileName = `Bulkaroma_Common_Materials_${Date.now()}.xlsx`;
+      const buffer = await workbook.xlsx.writeBuffer();
+      const nodeBuffer = Buffer.from(buffer);
+
+      // Save to local tmp
       const filePath = path.join(EXPORTS_DIR, fileName);
-      await workbook.xlsx.writeFile(filePath);
+      try {
+        fs.writeFileSync(filePath, nodeBuffer);
+      } catch (writeErr) {
+        console.warn('[Export] Could not write local tmp file:', writeErr);
+      }
+
+      // Upload to Supabase Storage
+      let fileUrl = `/api/export/download/${jobId}`;
+      try {
+        const bucketName = env.exportBucket || 'exports';
+        const storagePath = `workbooks/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from(bucketName)
+          .upload(storagePath, nodeBuffer, {
+            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            upsert: true,
+          });
+
+        if (!uploadError) {
+          const { data: signedData } = await supabase.storage
+            .from(bucketName)
+            .createSignedUrl(storagePath, 60 * 60 * 24); // 24 hour link
+          if (signedData?.signedUrl) {
+            fileUrl = signedData.signedUrl;
+          }
+        } else {
+          console.warn('[Export] Supabase Storage upload info:', uploadError.message);
+        }
+      } catch (storageErr) {
+        console.warn('[Export] Storage error, falling back to download route:', storageErr);
+      }
 
       // Update job as completed
       await updateJobStatus(jobId, 'completed', {
         file_name: fileName,
-        file_url: `/exports/${fileName}`,
+        file_url: fileUrl,
         row_count: rowCount,
       });
 
-      console.log(`[Export] Complete workbook saved: ${filePath}`);
+      console.log(`[Export] Complete workbook generated: ${fileName}`);
       return filePath;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';

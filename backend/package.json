@@ -12,6 +12,8 @@
     "db:check": "ts-node src/scripts/db-check.ts"
   },
   "dependencies": {
+    "@bulkaroma/scrapers": "*",
+    "@bulkaroma/shared": "*",
     "@supabase/supabase-js": "^2.39.0",
     "@types/pg": "^8.23.1",
     "axios": "^1.6.7",

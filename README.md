@@ -55,6 +55,17 @@ npm run dev
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:3001
 
+## Vercel Full-Stack Deployment
+
+The entire repository (React frontend + Express API) is ready to deploy to **Vercel** with a single unified domain and configuration.
+
+- **Vercel Configuration:** [`vercel.json`](./vercel.json) handles automatic rewrites for `/api/*`, `/health`, and client-side SPA routing (`index.html`) so direct URL refreshes never 404.
+- **Serverless API Entrypoint:** [`api/index.ts`](./api/index.ts) mounts the Express application.
+- **Cron Jobs:** Scheduled daily supplier refresh via Vercel Crons (`/api/cron/refresh-suppliers`).
+- **Cloud Storage:** Excel exports are uploaded to Supabase Storage with signed download links.
+
+👉 For detailed setup and environment variable configuration, see the [Vercel Deployment Guide](./docs/DEPLOYMENT.md).
+
 ## Scripts
 
 | Script | Description |

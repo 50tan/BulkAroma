@@ -127,6 +127,14 @@ export class CurrencyService {
     return fallbackMap;
   }
 
+  /**
+   * Clears cached rates and forces a fresh rate fetch & persistence.
+   */
+  async refreshRates(baseCurrency = 'USD'): Promise<Record<string, number>> {
+    this.cache.delete(baseCurrency.toUpperCase());
+    return this.getAllRates(baseCurrency);
+  }
+
   private async fetchLiveRates(base: string): Promise<Record<string, number>> {
     let rates: Record<string, number> = {};
 
