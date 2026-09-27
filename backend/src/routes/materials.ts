@@ -10,6 +10,9 @@ export type CoverageTier =
   | 'COMMON_PSH_FRATERWORKS'
   | 'COMMON_PSH_PA'
   | 'COMMON_FRATERWORKS_PA'
+  | 'SINGLE_PSH'
+  | 'SINGLE_FRATERWORKS'
+  | 'SINGLE_PA'
   | 'SINGLE_SUPPLIER';
 
 export interface CommonMaterialResponse {
@@ -73,6 +76,10 @@ export function formatCommonMaterial(mat: any): CommonMaterialResponse {
     if (supplierNames.PSH && supplierNames.Fraterworks) coverageTier = 'COMMON_PSH_FRATERWORKS';
     else if (supplierNames.PSH && supplierNames.PA) coverageTier = 'COMMON_PSH_PA';
     else if (supplierNames.Fraterworks && supplierNames.PA) coverageTier = 'COMMON_FRATERWORKS_PA';
+  } else if (activeCount === 1) {
+    if (supplierNames.PSH) coverageTier = 'SINGLE_PSH';
+    else if (supplierNames.Fraterworks) coverageTier = 'SINGLE_FRATERWORKS';
+    else if (supplierNames.PA) coverageTier = 'SINGLE_PA';
   }
 
   return {
@@ -161,6 +168,7 @@ router.get('/', async (req: Request, res: Response) => {
   const search = ((req.query.search as string) || (req.query.q as string) || '').trim();
   const hasCas = req.query.hasCas;
   const suppliersParam = ((req.query.suppliers as string) || (req.query.supplier as string) || '').trim();
+  const coverage = ((req.query.coverage as string) || (req.query.tier as string) || '').trim().toLowerCase();
   const sort = ((req.query.sort as string) || 'name').toLowerCase();
   const direction = ((req.query.direction as string) || (req.query.dir as string) || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
 
@@ -238,6 +246,27 @@ router.get('/', async (req: Request, res: Response) => {
       }
     }
 
+    // Filter by coverage tier if requested
+    if (coverage && coverage !== 'all') {
+      formatted = formatted.filter((m) => {
+        const count = m.supplierCount ?? Object.values(m.supplierNames).filter(Boolean).length;
+        const hasPSH = !!m.supplierNames.PSH;
+        const hasFW = !!m.supplierNames.Fraterworks;
+        const hasPA = !!m.supplierNames.PA;
+
+        if (coverage === 'all_3' || coverage === 'all3') return count >= 3;
+        if (coverage === 'any_2' || coverage === 'any2') return count >= 2;
+        if (coverage === 'exactly_2' || coverage === 'exact2') return count === 2;
+        if (coverage === 'psh_fraterworks') return hasPSH && hasFW && !hasPA;
+        if (coverage === 'psh_pa') return hasPSH && hasPA && !hasFW;
+        if (coverage === 'fraterworks_pa') return hasFW && hasPA && !hasPSH;
+        if (coverage === 'psh_only') return hasPSH && !hasFW && !hasPA;
+        if (coverage === 'fraterworks_only') return hasFW && !hasPSH && !hasPA;
+        if (coverage === 'pa_only') return hasPA && !hasPSH && !hasFW;
+        return true;
+      });
+    }
+
     // Sort by supplierCount if requested
     if (sort === 'suppliercount') {
       formatted.sort((a, b) => {
@@ -247,7 +276,7 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    const total = count != null && !suppliersParam ? count : formatted.length;
+    const total = count != null && !suppliersParam && (!coverage || coverage === 'all') ? count : formatted.length;
     const paginated = formatted.slice(offset, offset + pageSize);
     const totalPages = Math.ceil(total / pageSize) || 1;
 
@@ -261,6 +290,80 @@ router.get('/', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('[Materials] Unexpected error:', err);
     return res.status(500).json({ error: 'Failed to fetch materials' });
+  }
+});
+
+/**
+ * 2. Static route: GET /api/materials/coverage-stats
+ * Real-time breakdown of materials across supplier intersection tiers.
+ */
+router.get('/coverage-stats', async (_req: Request, res: Response) => {
+  try {
+    const { data: materialsData, error: matError } = await supabase
+      .from('materials')
+      .select(`
+        id,
+        supplier_products (
+          supplier
+        )
+      `);
+
+    if (matError) {
+      return res.status(500).json({ error: 'Failed to fetch coverage stats', details: matError.message });
+    }
+
+    let total = 0;
+    let all3 = 0;
+    let any2 = 0;
+    let pshFraterworks = 0;
+    let pshPa = 0;
+    let fraterworksPa = 0;
+    let pshOnly = 0;
+    let fraterworksOnly = 0;
+    let paOnly = 0;
+
+    for (const m of (materialsData || [])) {
+      total++;
+      const sups = new Set((m.supplier_products || []).map((sp: any) => (sp.supplier || '').toLowerCase()));
+      const hasPSH = sups.has('psh');
+      const hasFW = sups.has('fraterworks');
+      const hasPA = sups.has('pa');
+
+      if (hasPSH && hasFW && hasPA) {
+        all3++;
+        any2++;
+      } else if (hasPSH && hasFW) {
+        pshFraterworks++;
+        any2++;
+      } else if (hasPSH && hasPA) {
+        pshPa++;
+        any2++;
+      } else if (hasFW && hasPA) {
+        fraterworksPa++;
+        any2++;
+      } else if (hasPSH) {
+        pshOnly++;
+      } else if (hasFW) {
+        fraterworksOnly++;
+      } else if (hasPA) {
+        paOnly++;
+      }
+    }
+
+    return res.json({
+      total,
+      all3,
+      any2,
+      exactly2: any2 - all3,
+      pshFraterworks,
+      pshPa,
+      fraterworksPa,
+      pshOnly,
+      fraterworksOnly,
+      paOnly,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Failed to calculate coverage stats', details: err?.message });
   }
 });
 

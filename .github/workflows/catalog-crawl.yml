@@ -2,7 +2,7 @@ name: Production Supplier Catalog Crawl & Sync
 
 on:
   schedule:
-    # Run daily at 03:00 UTC (08:30 IST / 20:00 PST)
+    # Run daily at 03:00 UTC (08:30 IST)
     - cron: '0 3 * * *'
 
   workflow_dispatch:

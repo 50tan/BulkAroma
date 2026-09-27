@@ -9,8 +9,9 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { getMaterials } from '../lib/api';
+import { getMaterials, getCoverageStats } from '../lib/api';
 import type {
+  CoverageFilter,
   MaterialFilters,
   MaterialSortField,
   SortDirection,
@@ -67,17 +68,27 @@ export default function CommonMaterialsPage() {
   const [category, setCategory] = useState('');
   const [hasCas, setHasCas] = useState<boolean | undefined>(undefined);
   const [suppliers, setSuppliers] = useState<SupplierCode[]>([]);
+  const [coverage, setCoverage] = useState<CoverageFilter>(
+    (searchParams.get('coverage') as CoverageFilter) || 'all'
+  );
   const [sort, setSort] = useState<MaterialSortField>(
     (searchParams.get('sort') as MaterialSortField) ?? 'name'
   );
   const [dir, setDir] = useState<SortDirection>('asc');
   const [page, setPage] = useState(1);
 
+  const { data: stats } = useQuery({
+    queryKey: ['coverageStats'],
+    queryFn: getCoverageStats,
+    staleTime: 5 * 60 * 1000,
+  });
+
   const filters: MaterialFilters = {
     ...(search ? { search } : {}),
     ...(category ? { category } : {}),
     ...(hasCas !== undefined ? { hasCas } : {}),
     ...(suppliers.length ? { suppliers } : {}),
+    ...(coverage && coverage !== 'all' ? { coverage } : {}),
   };
 
   const { data, isLoading, dataUpdatedAt } = useQuery({
@@ -118,10 +129,26 @@ export default function CommonMaterialsPage() {
       <div className="mt-4 mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">
-            Common Materials Directory
+            Catalog & Cross-Supplier Materials Directory
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {data ? `${data.total.toLocaleString()} materials` : 'Loading…'}
+          <p className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-2">
+            <span className="font-medium text-gray-900">
+              {data ? `${data.total.toLocaleString()} materials shown` : 'Loading…'}
+            </span>
+            <span className="text-gray-300">·</span>
+            <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium bg-emerald-50 px-2 py-0.5 rounded text-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              {stats ? `${stats.all3} All 3 Suppliers` : '71 All 3'}
+            </span>
+            <span className="text-gray-300">·</span>
+            <span className="inline-flex items-center gap-1.5 text-blue-700 font-medium bg-blue-50 px-2 py-0.5 rounded text-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+              {stats ? `${stats.any2} Common across ≥2` : '354 across ≥2'}
+            </span>
+            <span className="text-gray-300">·</span>
+            <span className="text-gray-500 text-xs">
+              {stats ? `${stats.total.toLocaleString()} total materials` : '1,884 total'}
+            </span>
           </p>
         </div>
         {dataUpdatedAt && (
@@ -132,9 +159,53 @@ export default function CommonMaterialsPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[230px_1fr] gap-6">
         {/* ── Filters Sidebar ── */}
         <aside className="space-y-5">
+          {/* Supplier Coverage Tier */}
+          <div>
+            <p className="section-header">Supplier Coverage</p>
+            <div className="space-y-1">
+              {[
+                { value: 'all' as const, label: 'All Catalog Materials', count: stats?.total },
+                { value: 'all_3' as const, label: 'All 3 Suppliers', count: stats?.all3 },
+                { value: 'any_2' as const, label: 'Any 2+ Suppliers', count: stats?.any2 },
+                { value: 'psh_fraterworks' as const, label: 'PSH + Fraterworks', count: stats?.pshFraterworks },
+                { value: 'psh_pa' as const, label: 'PSH + PA', count: stats?.pshPa },
+                { value: 'fraterworks_pa' as const, label: 'Fraterworks + PA', count: stats?.fraterworksPa },
+                { value: 'psh_only' as const, label: 'PSH Only', count: stats?.pshOnly },
+                { value: 'fraterworks_only' as const, label: 'Fraterworks Only', count: stats?.fraterworksOnly },
+                { value: 'pa_only' as const, label: 'PA Only', count: stats?.paOnly },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setCoverage(opt.value);
+                    setPage(1);
+                  }}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded text-xs transition-colors text-left ${
+                    coverage === opt.value
+                      ? 'bg-brand-600 text-white font-medium shadow-sm'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <span className="truncate">{opt.label}</span>
+                  {opt.count !== undefined && (
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ml-1.5 ${
+                        coverage === opt.value
+                          ? 'bg-white/20 text-white'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {opt.count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Search */}
           <div>
             <p className="section-header">Search</p>
@@ -295,6 +366,9 @@ export default function CommonMaterialsPage() {
                       <th className="table-cell text-center font-semibold text-gray-500 text-xs uppercase tracking-wide">
                         PA
                       </th>
+                      <th className="table-cell text-left font-semibold text-gray-500 text-xs uppercase tracking-wide">
+                        Coverage Tier
+                      </th>
                       <th className="table-cell text-right font-semibold text-gray-500 text-xs uppercase tracking-wide">
                         Variants
                       </th>
@@ -332,7 +406,7 @@ export default function CommonMaterialsPage() {
                               <span
                                 className={
                                   has
-                                    ? 'text-green-600 text-base'
+                                    ? 'text-green-600 text-base font-bold'
                                     : 'text-gray-300 text-base'
                                 }
                               >
@@ -340,6 +414,38 @@ export default function CommonMaterialsPage() {
                               </span>
                             </td>
                           ))}
+                          <td className="table-cell">
+                            {hasPSH && hasFW && hasPA ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-800">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                All 3 Suppliers
+                              </span>
+                            ) : (hasPSH && hasFW) ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-100 text-blue-800">
+                                PSH + FW (2)
+                              </span>
+                            ) : (hasPSH && hasPA) ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-100 text-blue-800">
+                                PSH + PA (2)
+                              </span>
+                            ) : (hasFW && hasPA) ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-100 text-blue-800">
+                                FW + PA (2)
+                              </span>
+                            ) : hasPSH ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-600">
+                                PSH Only
+                              </span>
+                            ) : hasFW ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-600">
+                                FW Only
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-600">
+                                PA Only
+                              </span>
+                            )}
+                          </td>
                           <td className="table-cell text-right font-mono text-gray-600">
                             {m.variantCount}
                           </td>

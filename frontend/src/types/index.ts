@@ -69,6 +69,8 @@ export interface CommonMaterial {
   casNumber: string | null;
   category: string | null;
   supplierNames: Record<SupplierCode, string | null>;
+  supplierCount?: number;
+  coverageTier?: string;
   matchConfidence: number;
   variantCount: number;
   updatedAt: string;
@@ -241,13 +243,38 @@ export interface ExportJob {
   expiresAt: string | null;
 }
 
-// ─── Filters ──────────────────────────────────────────────────────────────────
+// ─── Filters & Coverage ────────────────────────────────────────────────────────
+
+export type CoverageFilter =
+  | 'all'
+  | 'all_3'
+  | 'any_2'
+  | 'psh_fraterworks'
+  | 'psh_pa'
+  | 'fraterworks_pa'
+  | 'psh_only'
+  | 'fraterworks_only'
+  | 'pa_only';
+
+export interface CoverageStats {
+  total: number;
+  all3: number;
+  any2: number;
+  exactly2: number;
+  pshFraterworks: number;
+  pshPa: number;
+  fraterworksPa: number;
+  pshOnly: number;
+  fraterworksOnly: number;
+  paOnly: number;
+}
 
 export interface MaterialFilters {
   category?: string;
   hasCas?: boolean;
   suppliers?: SupplierCode[];
   search?: string;
+  coverage?: CoverageFilter;
 }
 
 export type MaterialSortField = 'name' | 'category' | 'supplierCount' | 'updatedAt';

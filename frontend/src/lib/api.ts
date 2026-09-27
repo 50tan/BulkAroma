@@ -5,6 +5,7 @@ import type {
   ComparisonResult,
   Material,
   CommonMaterial,
+  CoverageStats,
   PriceHistoryPoint,
   PlatformStats,
   DataHealthRow,
@@ -100,6 +101,11 @@ export async function getMaterialHistory(
 
 export async function getCommonMaterials(): Promise<CommonMaterial[]> {
   const { data } = await api.get<CommonMaterial[]>('/common-materials');
+  return data;
+}
+
+export async function getCoverageStats(): Promise<CoverageStats> {
+  const { data } = await api.get<CoverageStats>('/materials/coverage-stats');
   return data;
 }
 

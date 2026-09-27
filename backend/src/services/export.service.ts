@@ -107,7 +107,7 @@ export class ExportService {
         usdToInr,
         nzdToInr,
       ] = await Promise.all([
-        fetchAllRows('common_materials_view', '*', 'canonical_name'),
+        fetchAllRows('materials', '*', 'canonical_name'),
         fetchAllRows('supplier_products', '*', 'original_name'),
         fetchAllRows('current_supplier_prices', '*', 'canonical_name'),
         fetchAllRows('price_history_view', '*', 'observed_at', false),
@@ -117,6 +117,21 @@ export class ExportService {
         currencyService.getRate('NZD', 'INR').catch(() => 51.5),
       ]);
 
+      // Map material_id -> set of suppliers and count of variants
+      const materialSuppliersMap: Record<string, Set<string>> = {};
+      const materialVariantsCountMap: Record<string, number> = {};
+      for (const sp of (allProducts.data || [])) {
+        if (!sp.canonical_material_id) continue;
+        const mid = sp.canonical_material_id as string;
+        if (!materialSuppliersMap[mid]) materialSuppliersMap[mid] = new Set();
+        materialSuppliersMap[mid].add((sp.supplier || '').toLowerCase());
+      }
+      for (const v of (allVariants.data || [])) {
+        if (!v.material_id) continue;
+        const mid = v.material_id as string;
+        materialVariantsCountMap[mid] = (materialVariantsCountMap[mid] || 0) + 1;
+      }
+
       // --- Sheet 1: Common Materials ---
       const sheet1 = workbook.addWorksheet('Common Materials');
       sheet1.columns = [
@@ -125,22 +140,48 @@ export class ExportService {
         { header: 'CAS Number', key: 'cas_number', width: 15 },
         { header: 'Chemical Name', key: 'chemical_name', width: 30 },
         { header: 'Category', key: 'category', width: 20 },
+        { header: 'Coverage Category', key: 'coverage_category', width: 28 },
+        { header: 'Supplier Count', key: 'supplier_count', width: 14 },
         { header: 'PSH', key: 'available_at_psh', width: 8 },
         { header: 'Fraterworks', key: 'available_at_fraterworks', width: 14 },
         { header: "Perfumer's Apprentice", key: 'available_at_pa', width: 22 },
-        { header: 'Supplier Count', key: 'supplier_count', width: 14 },
         { header: 'Total Variants', key: 'total_variants', width: 14 },
         { header: 'Last Price Update', key: 'last_price_update', width: 20 },
       ];
-      styleHeaders(sheet1, 11);
+      styleHeaders(sheet1, 12);
 
-      for (const mat of (commonMaterials.data || [])) {
+      // Sort materials: ALL 3 first, then ANY 2, then single suppliers
+      const sortedMaterials = [...(commonMaterials.data || [])].sort((a, b) => {
+        const supsA = materialSuppliersMap[a.id] || new Set();
+        const supsB = materialSuppliersMap[b.id] || new Set();
+        if (supsB.size !== supsA.size) return supsB.size - supsA.size;
+        return (a.canonical_name || '').localeCompare(b.canonical_name || '');
+      });
+
+      for (const mat of sortedMaterials) {
+        const sups = materialSuppliersMap[mat.id] || new Set();
+        const hasPSH = sups.has('psh');
+        const hasFW = sups.has('fraterworks');
+        const hasPA = sups.has('pa');
+
+        let coverageCategory = 'UNLINKED';
+        if (hasPSH && hasFW && hasPA) coverageCategory = 'ALL 3';
+        else if (hasPSH && hasFW) coverageCategory = 'ANY 2 (PSH + Fraterworks)';
+        else if (hasPSH && hasPA) coverageCategory = 'ANY 2 (PSH + PA)';
+        else if (hasFW && hasPA) coverageCategory = 'ANY 2 (Fraterworks + PA)';
+        else if (hasPSH) coverageCategory = 'PSH ONLY';
+        else if (hasFW) coverageCategory = 'FRATERWORKS ONLY';
+        else if (hasPA) coverageCategory = 'PA ONLY';
+
         sheet1.addRow({
           ...mat,
-          available_at_psh: mat.available_at_psh ? 'Yes' : 'No',
-          available_at_fraterworks: mat.available_at_fraterworks ? 'Yes' : 'No',
-          available_at_pa: mat.available_at_pa ? 'Yes' : 'No',
-          last_price_update: mat.last_price_update ? new Date(mat.last_price_update) : 'N/A',
+          coverage_category: coverageCategory,
+          supplier_count: sups.size,
+          available_at_psh: hasPSH ? 'Yes' : 'No',
+          available_at_fraterworks: hasFW ? 'Yes' : 'No',
+          available_at_pa: hasPA ? 'Yes' : 'No',
+          total_variants: materialVariantsCountMap[mat.id] || 0,
+          last_price_update: mat.updated_at ? new Date(mat.updated_at) : 'N/A',
         });
       }
       sheet1.getColumn('last_price_update').numFmt = 'yyyy-mm-dd hh:mm';
@@ -261,6 +302,7 @@ export class ExportService {
         { header: 'Material', key: 'material', width: 35 },
         { header: 'Target Qty', key: 'target_qty', width: 12 },
         { header: 'CAS', key: 'cas', width: 15 },
+        { header: 'Carried By', key: 'carried_by', width: 25 },
       ];
       for (const sk of SUPPLIER_KEYS) {
         s4Cols.push({ header: SUPPLIER_LABELS[sk], key: `price_${sk}`, width: 18 });
@@ -279,13 +321,17 @@ export class ExportService {
         variantsByMaterialSupplier[matKey][v.supplier]!.push(v);
       }
 
-      for (const mat of (commonMaterials.data || [])) {
+      for (const mat of sortedMaterials) {
         const matVariants = variantsByMaterialSupplier[mat.id] || {};
+        const carriedBy = SUPPLIER_KEYS.filter((sk) => (matVariants[sk] || []).length > 0).map((sk) => SUPPLIER_LABELS[sk]);
+        if (carriedBy.length === 0) continue; // Skip materials with no priced variants in matrix
+
         for (const targetG of TARGET_QTYS_G) {
           const rowData: Record<string, string | number> = {
             material: mat.canonical_name,
             target_qty: targetG < 1000 ? `${targetG} g` : `${targetG / 1000} kg`,
             cas: mat.cas_number || 'N/A',
+            carried_by: carriedBy.join(', ') || 'None',
           };
 
           for (const sk of SUPPLIER_KEYS) {
