@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 import { env } from './env';
 
 /**
@@ -10,5 +11,8 @@ export const supabase = createClient(env.supabaseUrl, env.supabaseSecretKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false,
+  },
+  realtime: {
+    transport: WebSocket as any,
   },
 });
