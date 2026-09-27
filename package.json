@@ -18,6 +18,8 @@
     "scrape:fraterworks": "npm run scrape:fraterworks --workspace=scrapers",
     "scrape:pa": "npm run scrape:pa --workspace=scrapers",
     "scrape:full": "npm run scrape:fraterworks && npm run scrape:psh && npm run scrape:pa",
+    "crawl:pipeline": "npm run sync:pipeline --workspace=backend",
+    "crawl:resume": "npm run sync:pipeline --workspace=backend -- --resume",
     "match:pipeline": "npm run match --workspace=backend",
     "export": "npm run export --workspace=backend",
     "db:check": "npm run db:check --workspace=backend"

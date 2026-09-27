@@ -1,0 +1,85 @@
+name: Production Supplier Catalog Crawl & Sync
+
+on:
+  schedule:
+    # Run daily at 03:00 UTC (08:30 IST / 20:00 PST)
+    - cron: '0 3 * * *'
+
+  workflow_dispatch:
+    inputs:
+      supplier:
+        description: 'Supplier to crawl (all, psh, fraterworks, pa)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - psh
+          - fraterworks
+          - pa
+      resume:
+        description: 'Resume from last saved checkpoint'
+        required: true
+        default: true
+        type: boolean
+      skip_export:
+        description: 'Skip automatic Excel regeneration'
+        required: false
+        default: false
+        type: boolean
+
+# Prevent concurrent overlapping crawls
+concurrency:
+  group: catalog-crawl-production
+  cancel-in-progress: false
+
+jobs:
+  crawl-and-sync:
+    name: Full Catalog Crawl & Common Material Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 180 # Generous timeout for polite crawling
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Workspaces
+        run: npm run build
+
+      - name: Run End-to-End Production Pipeline (Crawl -> Match -> Export)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          CURRENCY_API_KEY: ${{ secrets.CURRENCY_API_KEY }}
+          EXPORT_BUCKET: ${{ vars.EXPORT_BUCKET || 'exports' }}
+          NODE_ENV: production
+        run: |
+          RESUME_FLAG=""
+          if [ "${{ github.event.inputs.resume || 'true' }}" = "true" ]; then
+            RESUME_FLAG="--resume"
+          fi
+
+          SKIP_EXPORT_FLAG=""
+          if [ "${{ github.event.inputs.skip_export || 'false' }}" = "true" ]; then
+            SKIP_EXPORT_FLAG="--skip-export"
+          fi
+
+          SUPPLIER_ARG="--supplier=${{ github.event.inputs.supplier || 'all' }}"
+
+          echo "Executing: npm run crawl:pipeline -- $SUPPLIER_ARG $RESUME_FLAG $SKIP_EXPORT_FLAG"
+          npm run crawl:pipeline -- "$SUPPLIER_ARG" $RESUME_FLAG $SKIP_EXPORT_FLAG
+
+      - name: Notify Failure
+        if: failure()
+        run: |
+          echo "::error::Production catalog crawl failed. Inspect the step logs and Supabase crawl_errors for details."

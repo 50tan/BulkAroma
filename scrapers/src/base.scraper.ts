@@ -204,6 +204,67 @@ export abstract class BaseScraper {
     return data.id;
   }
 
+  public setScrapeRunId(id: string) {
+    this.scrapeRunId = id;
+  }
+
+  /**
+   * Update running checkpoint in Supabase to enable reliable resume on interruption.
+   */
+  public async updateCheckpoint(checkpointData: Record<string, unknown>): Promise<void> {
+    if (!this.scrapeRunId) return;
+    try {
+      const checkpointEntry = {
+        type: 'checkpoint',
+        ...checkpointData,
+        updatedAt: new Date().toISOString(),
+      };
+      await this.supabase.from('scrape_runs').update({
+        products_found: this.summary.productsFound,
+        products_updated: this.summary.productsUpdated,
+        variants_found: this.summary.variantsFound,
+        prices_found: this.summary.pricesFound,
+        errors_count: this.summary.errorsCount,
+        parser_warnings: [...this.parserWarnings, checkpointEntry],
+      }).eq('id', this.scrapeRunId);
+    } catch (err: any) {
+      console.warn(`  [${this.supplierKey.toUpperCase()}] Checkpoint update failed:`, err?.message);
+    }
+  }
+
+  /**
+   * Look up the last saved checkpoint for this supplier from Supabase.
+   */
+  public async getLastCheckpoint(): Promise<Record<string, unknown> | null> {
+    try {
+      const { data } = await this.supabase
+        .from('scrape_runs')
+        .select('parser_warnings, status')
+        .eq('supplier', this.supplierKey)
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!data || !Array.isArray(data.parser_warnings)) return null;
+
+      for (let i = data.parser_warnings.length - 1; i >= 0; i--) {
+        const item = data.parser_warnings[i];
+        if (item && typeof item === 'object' && item.type === 'checkpoint') {
+          return item;
+        }
+        if (typeof item === 'string') {
+          try {
+            const parsed = JSON.parse(item);
+            if (parsed.type === 'checkpoint') return parsed;
+          } catch {}
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Complete the scrape run in Supabase.
    */

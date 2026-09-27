@@ -40,7 +40,9 @@ export class PerfumersApprenticeScraper extends BaseScraper {
       // 1. Discover all fragrance product URLs from the 7 category range pages
       const productUrls = new Set<string>();
 
-      const rangesToCrawl = options.maxPages ? PAGERANGES.slice(0, options.maxPages) : PAGERANGES;
+      const startIdx = options.startPage ? Math.max(0, options.startPage - 1) : 0;
+      const maxRanges = options.maxPages ? options.maxPages : PAGERANGES.length;
+      const rangesToCrawl = PAGERANGES.slice(startIdx, startIdx + maxRanges);
 
       for (const range of rangesToCrawl) {
         const catUrl = `${PA_BASE}/c-244-all-fragrance-ingredients.aspx?pagerange=${range}`;
@@ -103,6 +105,12 @@ export class PerfumersApprenticeScraper extends BaseScraper {
             count++;
             if (count % 25 === 0 || count === urlList.length) {
               console.log(`  [PA] Processed ${count}/${urlList.length} products...`);
+              await this.updateCheckpoint({
+                processedCount: count,
+                totalDiscovered: urlList.length,
+                productsUpdated: this.summary.productsUpdated,
+                variantsFound: this.summary.variantsFound,
+              });
             }
           } catch (err) {
             await this.logError(prodUrl, 'product_scrape_error', (err as Error).message);

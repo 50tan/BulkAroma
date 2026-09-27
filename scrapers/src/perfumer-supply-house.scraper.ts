@@ -36,10 +36,11 @@ export class PerfumerSupplyHouseScraper extends BaseScraper {
     try {
       // 1. Fetch all products via WooCommerce Store API
       const allStoreProducts: Array<Record<string, unknown>> = [];
-      let page = 1;
+      let page = options.startPage || 1;
+      const maxPages = options.maxPages ? page + options.maxPages - 1 : Infinity;
 
       while (true) {
-        if (options.maxPages && page > options.maxPages) break;
+        if (page > maxPages) break;
 
         const apiUrl = `${PSH_BASE}/wp-json/wc/store/v1/products?per_page=100&page=${page}`;
         console.log(`[PSH] Fetching store API page ${page}...`);
@@ -91,6 +92,12 @@ export class PerfumerSupplyHouseScraper extends BaseScraper {
             count++;
             if (count % 25 === 0 || count === allStoreProducts.length) {
               console.log(`  [PSH] Processed ${count}/${allStoreProducts.length} products...`);
+              await this.updateCheckpoint({
+                processedCount: count,
+                totalDiscovered: allStoreProducts.length,
+                productsUpdated: this.summary.productsUpdated,
+                variantsFound: this.summary.variantsFound,
+              });
             }
           } catch (err) {
             await this.logError(permalink, 'product_scrape_error', (err as Error).message);

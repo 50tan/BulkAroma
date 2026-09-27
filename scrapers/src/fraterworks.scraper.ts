@@ -16,12 +16,13 @@ export class FraterworksScraper extends BaseScraper {
     await this.startScrapeRun();
 
     try {
-      let page = 1;
+      let page = options.startPage || 1;
+      const maxPages = options.maxPages ? page + options.maxPages - 1 : Infinity;
       let totalFound = 0;
       let totalUpserted = 0;
 
       while (true) {
-        if (options.maxPages && page > options.maxPages) {
+        if (page > maxPages) {
           console.log(`[Fraterworks] Reached maxPages limit (${options.maxPages})`);
           break;
         }
@@ -74,6 +75,13 @@ export class FraterworksScraper extends BaseScraper {
             await this.logError(parsed.sourceUrl, 'upsert_error', (err as Error).message);
           }
         }
+
+        await this.updateCheckpoint({
+          lastCompletedPage: page,
+          totalFound,
+          totalUpserted,
+          variantsFound: this.summary.variantsFound,
+        });
 
         if (options.testMode && totalUpserted >= 5) break;
         page++;
