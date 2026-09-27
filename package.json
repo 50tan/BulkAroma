@@ -1,0 +1,34 @@
+{
+  "name": "bulkaroma-price-intelligence",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend",
+    "shared",
+    "scrapers"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
+    "build": "npm run build --workspace=shared && npm run build --workspace=backend && npm run build --workspace=frontend",
+    "lint": "npm run lint --workspace=frontend && npm run lint --workspace=backend",
+    "test": "npm run test --workspace=backend && npm run test --workspace=frontend",
+    "scrape": "npm run scrape --workspace=scrapers",
+    "scrape:psh": "npm run scrape:psh --workspace=scrapers",
+    "scrape:fraterworks": "npm run scrape:fraterworks --workspace=scrapers",
+    "scrape:pa": "npm run scrape:pa --workspace=scrapers",
+    "scrape:full": "npm run scrape:fraterworks && npm run scrape:psh && npm run scrape:pa",
+    "match:pipeline": "npm run match --workspace=backend",
+    "export": "npm run export --workspace=backend",
+    "db:check": "npm run db:check --workspace=backend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "autoprefixer": "^10.6.1",
+    "browserslist": "^4.29.1",
+    "caniuse-lite": "^1.0.30001812"
+  }
+}

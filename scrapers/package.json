@@ -1,0 +1,25 @@
+{
+  "name": "@bulkaroma/scrapers",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "scrape": "ts-node src/run-all.ts",
+    "scrape:psh": "ts-node src/run-psh.ts",
+    "scrape:fraterworks": "ts-node src/run-fraterworks.ts",
+    "scrape:pa": "ts-node src/run-pa.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "axios": "^1.6.7",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.4.1",
+    "playwright": "^1.41.0",
+    "robots-parser": "^3.0.1",
+    "p-limit": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "ts-node": "^10.9.2"
+  }
+}

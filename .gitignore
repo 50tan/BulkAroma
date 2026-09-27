@@ -1,0 +1,49 @@
+# Environment files — NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+.next/
+
+# TypeScript
+*.tsbuildinfo
+
+# Vite
+.vite/
+
+# Playwright
+test-results/
+playwright-report/
+
+# Excel exports (generated files — not source)
+exports/*.xlsx
+exports/*.csv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# Logs
+logs/
+*.log
+
+# Test coverage
+coverage/
+
+# Temp
+tmp/
+.tmp/
