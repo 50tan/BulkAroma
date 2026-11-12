@@ -1,9 +1,10 @@
 name: Production Supplier Catalog Crawl & Sync
 
 on:
-  schedule:
-    # Run daily at 03:00 UTC (08:30 IST)
-    - cron: '0 3 * * *'
+  # Daily schedule disabled to stop automated failed cron runs and email/notification alerts.
+  # Can be re-enabled once secrets/crawling prerequisites are verified in GitHub Actions.
+  # schedule:
+  #   - cron: '0 3 * * *'
 
   workflow_dispatch:
     inputs:
